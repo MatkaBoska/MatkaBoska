@@ -98,7 +98,14 @@ class _NotePinBleDiagnosticsState extends State<NotePinBleDiagnostics> {
     if (_connecting) return;
     setState(() => _connecting = true);
     try {
-      await _disconnect();
+      // Only tear down if a previous attempt left a managed native session.
+      // After unmanageDevice, Android posts an asynchronous "unmanaged" event.
+      // Re-registering immediately for the same MAC races that old callback.
+      if (_deviceUuid != null) {
+        _append('Zamykam poprzednią sesję BLE przed ponowną próbą…');
+        await _disconnect();
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
       _deviceUuid = p.uuid;
       _ready = Completer<List<BleService>>();
       _release = BleBridge.instance.registerPeripheral(
@@ -131,7 +138,7 @@ class _NotePinBleDiagnosticsState extends State<NotePinBleDiagnostics> {
           }
         },
       );
-      _append('Łączenie GATT: ${p.name.isEmpty ? p.uuid : p.name}');
+      _append('Łączenie GATT ze świeżego skanu: ${p.name.isEmpty ? p.uuid : p.name}');
       await _host.manageDevice(p.uuid, false);
       final services = await _ready!.future.timeout(const Duration(seconds: 45));
       final plaud = services.where(
@@ -189,6 +196,10 @@ class _NotePinBleDiagnosticsState extends State<NotePinBleDiagnostics> {
     _deviceUuid = null;
     _batteryReply = null;
     try {
+      // Remove the old callback BEFORE native unmanageDevice emits its
+      // delayed "unmanaged" event. Otherwise it can abort the next attempt.
+      _release?.call();
+      _release = null;
       if (oldUuid != null) {
         if (_subscribed) {
           await _host.unsubscribeCharacteristic(
@@ -200,8 +211,6 @@ class _NotePinBleDiagnosticsState extends State<NotePinBleDiagnostics> {
     } catch (e) {
       _append('Czyszczenie połączenia: $e');
     } finally {
-      _release?.call();
-      _release = null;
       if (mounted) setState(() { _connected = false; _subscribed = false; _battery = null; });
     }
   }
