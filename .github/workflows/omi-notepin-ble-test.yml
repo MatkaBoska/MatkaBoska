@@ -1,0 +1,97 @@
+name: Omi NotePin PN0200 - test APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - notepin-ble-fix-20261122
+    paths:
+      - 'notepin/**'
+      - '.github/workflows/omi-notepin-ble-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NDK_VERSION: '28.2.13676358'
+      GIT_HTTP_LOW_SPEED_LIMIT: '1000'
+      GIT_HTTP_LOW_SPEED_TIME: '60'
+    steps:
+      - name: Checkout helper scripts
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned Omi source
+        uses: actions/checkout@v4
+        with:
+          repository: BasedHardware/omi
+          ref: 17cb670adce09940aa818ecccd49e39f2a8f37a7
+          path: omi-source
+          filter: blob:none
+
+      - name: Apply guarded PLAUD BLE fix
+        run: python3 notepin/apply_fix.py
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/local/share/chromium /usr/local/lib/node_modules
+          sudo docker image prune --all --force
+          df -h /
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.5
+          cache: true
+
+      - name: Flutter dependencies
+        working-directory: omi-source/app
+        run: flutter pub get
+
+      - name: Prepare public development build configuration
+        working-directory: omi-source/app
+        run: |
+          mkdir -p android/app/src/dev android/app/src/prod
+          cp lib/firebase_options_local.dart lib/firebase_options_dev.dart
+          cp lib/firebase_options_local.dart lib/firebase_options_prod.dart
+          cp setup/prebuilt/google-services-local.json android/app/src/dev/google-services.json
+          cp setup/prebuilt/google-services-local.json android/app/src/prod/google-services.json
+          cp setup/prebuilt/key.properties android/key.properties
+          printf 'API_BASE_URL=\nUSE_WEB_AUTH=true\nUSE_AUTH_CUSTOM_TOKEN=true\nSTAGING_API_URL=\n' > .dev.env
+          : > .env
+
+      - name: Generate Dart sources
+        working-directory: omi-source/app
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Install required NDK
+        run: python3 omi-source/.github/scripts/install_android_ndk.py --ndk-version "$NDK_VERSION"
+
+      - name: Build debug APK
+        working-directory: omi-source/app
+        env:
+          CM_KEYSTORE_PATH: ${{ github.workspace }}/omi-source/app/setup/prebuilt/debug.keystore
+          CM_KEYSTORE_PASSWORD: android
+          CM_KEY_ALIAS: androiddebugkey
+          CM_KEY_PASSWORD: android
+        run: flutter build apk --debug --flavor dev --target-platform android-arm64
+
+      - name: Upload APK for Android phone
+        uses: actions/upload-artifact@v4
+        with:
+          name: omi-notepin-pn0200-dev-debug
+          path: omi-source/app/build/app/outputs/flutter-apk/app-dev-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
