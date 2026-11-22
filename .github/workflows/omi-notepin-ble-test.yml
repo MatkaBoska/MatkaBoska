@@ -1,4 +1,4 @@
-name: Omi NotePin PN0200 - test APK
+name: Omi PN0200 - offline BLE diagnostic APK
 
 on:
   workflow_dispatch:
@@ -34,6 +34,9 @@ jobs:
 
       - name: Apply guarded PLAUD BLE fix
         run: python3 notepin/apply_fix.py
+
+      - name: Install offline BLE diagnostics entrypoint
+        run: cp notepin/ble_test_main.dart omi-source/app/lib/notepin_ble_test_main.dart
 
       - name: Free runner disk space
         run: |
@@ -85,12 +88,12 @@ jobs:
           CM_KEYSTORE_PASSWORD: android
           CM_KEY_ALIAS: androiddebugkey
           CM_KEY_PASSWORD: android
-        run: flutter build apk --debug --flavor dev --target-platform android-arm64
+        run: flutter build apk --debug --flavor dev --target lib/notepin_ble_test_main.dart --target-platform android-arm64
 
       - name: Upload APK for Android phone
         uses: actions/upload-artifact@v4
         with:
-          name: omi-notepin-pn0200-dev-debug
+          name: omi-notepin-pn0200-offline-ble-test
           path: omi-source/app/build/app/outputs/flutter-apk/app-dev-debug.apk
           if-no-files-found: error
           retention-days: 7
