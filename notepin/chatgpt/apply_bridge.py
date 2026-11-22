@@ -73,5 +73,25 @@ replace_once(
         if (observed.get() != null) device = observed.get();
       }''',
 )
+# Make the primary control labels usable for a Polish-speaking tester.
+# Leave developer/status internals unchanged to preserve original diagnostics.
+primary_labels = {
+    '認証JSONを取り込む': 'Importuj JSON właściciela PLAUD',
+    '自動回収を開始（再起動後も再開）': 'Rozpocznij pobieranie nagrań',
+    '回収停止（機器の録音は継続）': 'Zatrzymaj pobieranie (NotePin nagrywa dalej)',
+    'PCへのWebSocket転送を設定／停止': 'Transmisja WebSocket na komputer',
+    '端末のバックグラウンド設定を開く': 'Ustawienia baterii i działania w tle',
+    '保存済みWAVをフォルダーへ書き出す': 'Eksportuj pobrane WAV',
+    '先に認証JSONを取り込んでください': 'Najpierw zaimportuj JSON właściciela.',
+    '未開始': 'Nie uruchomiono',
+}
+main_text = main.read_text(encoding='utf-8')
+for before, after in primary_labels.items():
+    n = main_text.count(before)
+    if n < 1:
+        raise SystemExit(f'Missing Polish UI text anchor: {before}')
+    main_text = main_text.replace(before, after)
+main.write_text(main_text, encoding='utf-8')
+
 shutil.copyfile('notepin/chatgpt/ChatBridgeActivity.java', dest)
 print('NotePin bridge patched: activity, launcher, manifest, fresh BLE scan.')
