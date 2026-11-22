@@ -1,0 +1,58 @@
+name: PN0200 ChatGPT bridge - Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - notepin-chatgpt-bridge-20261122
+    paths:
+      - 'notepin/chatgpt/**'
+      - '.github/workflows/notepin-chatgpt-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout bridge
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned NotePin Live Audio MIT upstream
+        uses: actions/checkout@v4
+        with:
+          repository: hrvtuirvw/notepin-live-audio
+          ref: 87cc25ebed0e9b33209dabf206b8ca0704c61ffd
+          path: notepin-live-audio
+
+      - name: Apply changes to the cloned source
+        run: python3 notepin/chatgpt/apply_bridge.py
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Compile and run unit tests
+        working-directory: notepin-live-audio/android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Upload Android installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PN0200-ChatGPT-bridge-debug-APK
+          path: notepin-live-audio/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
