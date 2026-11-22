@@ -39,9 +39,10 @@ jobs:
       - name: Install Android 35 SDK on preinstalled GitHub runner
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          command -v sdkmanager
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          SDKMGR="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -n "$SDKMGR" || { echo "sdkmanager missing in $ANDROID_HOME"; exit 1; }
+          yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          "$SDKMGR" --sdk_root="$ANDROID_HOME" 'platforms;android-35' 'build-tools;35.0.0'
 
       - name: Compile and run unit tests
         working-directory: notepin-live-audio/android
