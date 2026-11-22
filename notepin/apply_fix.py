@@ -78,3 +78,70 @@ replace_once(
 
 path.write_text(source, encoding='utf-8')
 print(f'Zastosowano trzy poprawki diagnostyczne w {path}')
+
+
+# Android 14+ regression experiment: Omi currently reconstructs every BLE
+# peripheral as ADDRESS_TYPE_RANDOM. The ScanResult BluetoothDevice carries
+# Android's observed address type. Reuse that instance for PLAUD only.
+native = Path('omi-source/app/android/app/src/main/kotlin/com/friend/ios/ble/OmiBleManager.kt')
+if not native.is_file():
+    raise SystemExit(f'Brak pliku Android Omi: {native}')
+kotlin = native.read_text(encoding='utf-8')
+
+
+def replace_kotlin_once(before: str, after: str, label: str) -> None:
+    global kotlin
+    n = kotlin.count(before)
+    if n != 1:
+        raise SystemExit(f'Nie zastosowano {label}: oczekiwano 1 dopasowania, znaleziono {n}.')
+    kotlin = kotlin.replace(before, after, 1)
+
+
+replace_kotlin_once(
+    """    val mainHandler = Handler(Looper.getMainLooper())""",
+    """    val mainHandler = Handler(Looper.getMainLooper())
+
+    // Temporary PN0200 test: Android scan results retain address-type metadata.
+    // Hardcoding ADDRESS_TYPE_RANDOM for every device can misaddress a PUBLIC
+    // advertiser. Cache PLAUD scan handles and reuse the exact BluetoothDevice.
+    private val plaudScannedDevices = ConcurrentHashMap<String, BluetoothDevice>()""",
+    'cache zidentyfikowanych urządzeń PLAUD',
+)
+
+replace_kotlin_once(
+    """                val rssi = result.rssi
+                val advServiceUuids = result.scanRecord?.serviceUuids?.map { it.uuid.toString() } ?: emptyList()""",
+    """                val rssi = result.rssi
+                val advServiceUuids = result.scanRecord?.serviceUuids?.map { it.uuid.toString() } ?: emptyList()
+                if (name.contains("plaud", ignoreCase = true) ||
+                    name.contains("notepin", ignoreCase = true)) {
+                    plaudScannedDevices[address] = device
+                }""",
+    'zapamiętanie ScanResult.device',
+)
+
+replace_kotlin_once(
+    """        // Use getRemoteLeDevice with ADDRESS_TYPE_RANDOM to specify the correct address type.
+        val device = if (android.os.Build.VERSION.SDK_INT >= 34) {
+            adapter.getRemoteLeDevice(addr, BluetoothDevice.ADDRESS_TYPE_RANDOM)
+        } else {
+            adapter.getRemoteDevice(addr)
+        }
+        val callback = createGattCallback()""",
+    """        // Prefer the freshly scanned BluetoothDevice: it remembers whether the
+        // advertiser used a public or a random address. Leave the existing
+        // fallback unchanged for unscanned devices.
+        val scannedDevice = plaudScannedDevices[addr]
+        val device = scannedDevice ?: if (android.os.Build.VERSION.SDK_INT >= 34) {
+            adapter.getRemoteLeDevice(addr, BluetoothDevice.ADDRESS_TYPE_RANDOM)
+        } else {
+            adapter.getRemoteDevice(addr)
+        }
+        Log.i(TAG, "PN0200 GATT address source: " +
+            if (scannedDevice != null) "ScanResult.device" else "legacy fallback")
+        val callback = createGattCallback()""",
+    'użycie prawdziwego BluetoothDevice ze skanowania',
+)
+
+native.write_text(kotlin, encoding='utf-8')
+print(f'PN0200: poprawiono też wybór typu adresu BLE w {native}')
